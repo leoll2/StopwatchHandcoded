@@ -1,0 +1,287 @@
+        -:    0:Source:src/swatch.c
+        -:    0:Graph:.\build\swatch.gcno
+        -:    0:Data:.\build\swatch.gcda
+        -:    0:Runs:1
+        -:    0:Programs:1
+        -:    1:/* Main file of the actual stopwatch application */
+        -:    2:
+        -:    3:#include <stdio.h>
+        -:    4:
+        -:    5:#include "swatch.h"
+        -:    6:
+        -:    7:#include "custom_types.h"
+        -:    8:#include "event.h"
+        -:    9:
+        -:   10:uint8_t hours, minutes, seconds, tenths;	// clock time
+        -:   11:uint8_t s_minutes, s_seconds, s_tenths; 	// stopwatch time
+        -:   12:uint8_t a_hours, a_minutes;					// alarm time
+        -:   13:Mode mode = TIMEMODE;						// current mode
+        -:   14:TimeSetMode tsmode = SETHOURS;				// current submode of timeset
+        -:   15:AlarmSetMode asmode = ASETHOURS;			// current submode of alarmset
+        -:   16:bool plus_pressed;							// plus button press signal
+        -:   17:bool minus_pressed;							// minus button press signal
+        -:   18:bool timemode_pressed;						// time mode button press signal
+        -:   19:bool timesetmode_pressed;					// timeset mode button press signal
+        -:   20:bool alarmmode_pressed;						// alarmset mode button press signal
+        -:   21:bool swatchmode_pressed;					// stopwatch mode button press signal
+        -:   22:bool swatch_running;						// stopwatch currently running
+        -:   23:
+        -:   24:char s[64];									// buffer for debug messages
+        -:   25:
+        -:   26:
+        -:   27:/* SysTick ISR2 handler */
+    #####:   28:ISR2(systick_handler)
+        -:   29:{
+    #####:   30:	CounterTick(my_counter);
+    #####:   31:}
+        -:   32:
+        -:   33:
+        -:   34:/* React to external user-triggered events, performing the appropriate action */
+      406:   35:void handle_events(Mode old_mode)
+        -:   36:{
+        -:   37:	// Switch mode
+      406:   38:	if (timemode_pressed)
+        6:   39:		mode = TIMEMODE;
+      400:   40:	else if (timesetmode_pressed)
+       17:   41:		mode = TIMESETMODE;
+      383:   42:	else if (swatchmode_pressed)
+        8:   43:		mode = SWATCHMODE;
+      375:   44:	else if (alarmmode_pressed)
+       17:   45:		mode = ALARMMODE;
+        -:   46:
+        -:   47:	// If in timeset mode, select the digit to change
+      406:   48:	if (timesetmode_pressed && (old_mode == TIMESETMODE) && (mode == TIMESETMODE))
+        7:   49:		tsmode = (tsmode == SETHOURS) ? SETMINUTES : SETHOURS;
+        -:   50:
+        -:   51:	// If in alarmset mode, select the digit to change
+      406:   52:	if (alarmmode_pressed && (old_mode == ALARMMODE) && (mode == ALARMMODE))
+        7:   53:		asmode = (asmode == ASETHOURS) ? ASETMINUTES : ASETHOURS;
+        -:   54:
+        -:   55:	// Plus button pressed
+      406:   56:	if (plus_pressed) {
+      340:   57:		switch (mode) {
+      168:   58:			case TIMESETMODE:
+      168:   59:				if (tsmode == SETHOURS)
+       48:   60:					hours = (hours + 1) % 24;		// increment hours
+        -:   61:				else
+      120:   62:					minutes = (minutes + 1) % 60;	// increment minutes
+      168:   63:				break;
+      168:   64:			case ALARMMODE:
+      168:   65:				if (asmode == ASETHOURS)
+       48:   66:					a_hours = (a_hours + 1) % 24;	  // increment alarm hours
+        -:   67:				else
+      120:   68:					a_minutes = (a_minutes + 1) % 60; // increment alarm minutes
+      168:   69:				break;
+        4:   70:			case SWATCHMODE:
+        4:   71:				if (!swatch_running) {
+        2:   72:					SetRelAlarm(AlarmTaskStopwatch, 10, 100); // start stopwatch
+        2:   73:					swatch_running = true;
+        -:   74:				} else {
+        2:   75:					CancelAlarm(AlarmTaskStopwatch);		  // pause stopwatch
+        2:   76:					swatch_running = false;
+        -:   77:				}
+        4:   78:				break;
+    #####:   79:			default:
+    #####:   80:				break;
+        -:   81:		}
+       66:   82:	}
+        -:   83:	// Minus button pressed
+      406:   84:	if (minus_pressed) {
+       18:   85:		switch (mode) {
+        8:   86:			case TIMESETMODE:
+        8:   87:				if (tsmode == SETHOURS)
+        4:   88:					hours = (hours + 23) % 24;		// decrement hours
+        -:   89:				else
+        4:   90:					minutes = (minutes + 59) % 60; 	// decrement minutes
+        8:   91:				break;
+        8:   92:			case ALARMMODE:
+        8:   93:				if (asmode == ASETHOURS)
+        4:   94:					a_hours = (a_hours + 23) % 24;	   // decrement alarm hours
+        -:   95:				else
+        4:   96:					a_minutes = (a_minutes + 59) % 60; // decrement alarm minutes
+        8:   97:				break;
+        2:   98:			case SWATCHMODE:
+        2:   99:				s_minutes = s_seconds = s_tenths = 0;  // reset stopwatch
+        2:  100:				break;
+    #####:  101:			default:
+    #####:  102:				break;
+        -:  103:		}
+      388:  104:	}
+      406:  105:}
+        -:  106:
+        -:  107:
+        -:  108:/* Check if it's time to trigger the alarm */
+      406:  109:void check_alarm(void)
+        -:  110:{
+      406:  111:	if (hours == a_hours && minutes == a_minutes && seconds == 0)
+       52:  112:		SetRelAlarm(AlarmTaskAlarmBuzzer, 10, 1000);
+      406:  113:}
+        -:  114:
+        -:  115:
+        -:  116:/* Update the current time */
+  1801224:  117:TASK(TaskClock)
+        -:  118:{
+  1801224:  119:	if (++tenths % 10 == 0) {
+   180122:  120:		tenths = 0;
+   180122:  121:		if (++seconds % 60 == 0) {
+     3002:  122:			seconds = 0;
+     3002:  123:			if (++minutes % 60 == 0) {
+       50:  124:				minutes = 0;
+       50:  125:				if (++hours % 24 == 0)
+        2:  126:					hours = 0;
+        -:  127:			}
+        -:  128:		}
+        -:  129:	}
+  1801224:  130:}
+        -:  131:
+        -:  132:
+        -:  133:/* Update the stopwatch time */
+    73226:  134:TASK(TaskStopwatch)
+        -:  135:{
+    73226:  136:	if (++s_tenths % 10 == 0) {
+     7322:  137:		s_tenths = 0;
+     7322:  138:		if (++s_seconds % 60 == 0) {
+      122:  139:			s_seconds = 0;
+      122:  140:			if (++s_minutes % 60 == 0)
+        2:  141:				s_minutes = 0;
+        -:  142:		}
+        -:  143:	}
+    73226:  144:}
+        -:  145:
+        -:  146:
+        -:  147:/* Enable/disable the buzzer when the alarm is active.
+        -:  148: * The acoustic pattern alternates 1 second of beep to
+        -:  149: * 1 second of silence, for N consecutive times */
+       12:  150:TASK(TaskAlarmBuzzer)
+        -:  151:{
+        -:  152:	static uint8_t count = 2 * N_BEEPS_ALARM;
+        -:  153:
+       12:  154:	if (count % 2 == 0)
+        6:  155:		buzzer_unmute();
+        -:  156:	else
+        6:  157:		buzzer_mute();
+        -:  158:
+       12:  159:	if (--count == 0) {
+        2:  160:		buzzer_mute();
+        2:  161:		count = 2 * N_BEEPS_ALARM;			// reset for next time
+        2:  162:		CancelAlarm(AlarmTaskAlarmBuzzer);	// deactivate the alarm
+        -:  163:	}
+       12:  164:}
+        -:  165:
+        -:  166:
+        -:  167:/* Handle user-triggered events and update the GUI */
+      406:  168:TASK(TaskInterface)
+        -:  169:{
+        -:  170:	static Mode old_mode = ALARMMODE;
+        -:  171:
+        -:  172:	// Parse the events
+      406:  173:	if (IsEvent(TIMEMODE_EV)) timemode_pressed = 1;
+      400:  174:	else timemode_pressed = 0;
+        -:  175:
+      406:  176:	if (IsEvent(TIMESETMODE_EV)) timesetmode_pressed = 1;
+      389:  177:	else timesetmode_pressed = 0;
+        -:  178:
+      406:  179:	if (IsEvent(ALARMMODE_EV)) alarmmode_pressed = 1;
+      389:  180:	else alarmmode_pressed = 0;
+        -:  181:
+      406:  182:	if (IsEvent(SWATCHMODE_EV)) swatchmode_pressed = 1;
+      398:  183:	else swatchmode_pressed = 0;
+        -:  184:
+      406:  185:	if (IsEvent(PLUS_EV)) plus_pressed = 1;
+       66:  186:	else plus_pressed = 0;
+        -:  187:
+      406:  188:	if (IsEvent(MINUS_EV)) minus_pressed = 1;
+      388:  189:	else minus_pressed = 0;
+        -:  190:
+        -:  191:	// Handle the events
+      406:  192:	handle_events(old_mode);
+      406:  193:	ClearEvents();
+        -:  194:
+        -:  195:	// Activate the alarm if necessary
+      406:  196:	check_alarm();
+        -:  197:
+        -:  198:	// Plot the current time
+      406:  199:	display_time(old_mode);
+        -:  200:
+        -:  201:	// Plot the current mode if it has changed
+      406:  202:	if (mode != old_mode) {
+       34:  203:		update_mode_visual(old_mode, mode);
+       34:  204:		old_mode = mode;
+        -:  205:	}
+      406:  206:}
+        -:  207:
+        -:  208:
+        -:  209:/* Read inputs from the touchscreen */
+    #####:  210:TASK(TaskTouch)
+        -:  211:{
+        -:  212:	static bool pressed = false;
+    #####:  213:	unsigned int i = 0, px = 0, py = 0;
+    #####:  214:	TPoint p = {0,0};
+        -:  215:
+        -:  216:	/* Read 6 times and average because my screen is damaged and
+        -:  217:	   x-coordinate jitter is very high in some regions */
+    #####:  218:	while ((i < 6) && GetTouch_SC_Async(&px, &py)) {
+    #####:  219:		++i;
+    #####:  220:		p.x += px;
+    #####:  221:		p.y += py;
+        -:  222:	}
+        -:  223:
+    #####:  224:	if (i > 0) {
+        -:  225:#ifdef NO_TOUCH_HOLD
+    #####:  226:		if (!pressed) {
+        -:  227:#endif
+    #####:  228:			p.x /= i;
+    #####:  229:			p.y /= i;
+    #####:  230:			OnTouch(MyWatchScr, &p);
+        -:  231:#ifdef NO_TOUCH_HOLD
+        -:  232:		}
+    #####:  233:		pressed = true;
+        -:  234:	} else {
+    #####:  235:		pressed = false;
+        -:  236:#endif
+        -:  237:	}
+    #####:  238:}
+        -:  239:
+        -:  240:
+        1:  241:void init_swatch(void)
+        -:  242:{
+        -:  243:	// Initialize system and Erika
+        1:  244:	SystemInit();
+        1:  245:	EE_system_init();
+        -:  246:
+        -:  247:	// Initialize systick
+        1:  248:	EE_systick_set_period(MILLISECONDS_TO_TICKS(1, SystemCoreClock));
+        1:  249:	EE_systick_enable_int();
+        1:  250:	EE_systick_start();
+        -:  251:
+        -:  252:	// Initializes LCD and touchscreen
+        1:  253:	IOE_Config();
+        1:  254:	STM32f4_Discovery_LCD_Init();
+        -:  255:
+        -:  256:	// Initialize serial debug
+        1:  257:	debug_init();
+        -:  258:
+        -:  259:	// Calibrate the touchscreen
+        1:  260:	InitTouch(-0.112, 0.0623, -340, 11);
+        -:  261:
+        -:  262:	// Initialize the buzzer
+        1:  263:	buzzer_init();
+        -:  264:
+        -:  265:	// Draw the background
+        1:  266:	DrawInit(MyWatchScr);
+        1:  267:	LCD_SetTextColor(Black);
+        1:  268:	LCD_SetBackColor(Black);
+        1:  269:	LCD_DrawFullRect(28, 62, 200, 56);
+        1:  270:	WPrint(&MyWatchScr[SEP1STR], ":");
+        1:  271:	WPrint(&MyWatchScr[SEP2STR], ":");
+        -:  272:
+        -:  273:	// Program periodic alarms
+        1:  274:	SetRelAlarm(AlarmTaskClock, 10, 100);
+        1:  275:	SetRelAlarm(AlarmTaskInterface, 10, 50);
+        1:  276:	SetRelAlarm(AlarmTaskTouch, 10, 100);
+        -:  277:
+        -:  278:	// Forever loop
+        -:  279:	//for (;;) {}
+        1:  280:}
+        -:  281:
+        -:  282:
